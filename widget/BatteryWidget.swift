@@ -10,7 +10,8 @@ import SwiftUI
 
 let fd = FileManager.default
 let ud = UserDefaults.standard
-let ncFolder = fd.urls(for: .documentDirectory, in: .userDomainMask).first!.appendingPathComponent("NearcastData")
+let documentsDirectory = fd.urls(for: .documentDirectory, in: .userDomainMask).first ?? fd.homeDirectoryForCurrentUser
+let ncFolder = documentsDirectory.appendingPathComponent("NearcastData")
 
 @available(macOS 14, *)
 struct ViewSizeTimelineProviderNew: AppIntentTimelineProvider {

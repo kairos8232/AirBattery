@@ -88,7 +88,7 @@ class MagicBattery {
            let SPBluetoothDataType = SPBluetoothDataTypeRaw[0] as? [String: Any]{
             if let device_connected = SPBluetoothDataType["device_connected"] as? [Any]{
                 for device in device_connected{
-                    let d = device as! [String: Any]
+                    guard let d = device as? [String: Any] else { continue }
                     if let n = d.keys.first, let info = d[n] as? [String: Any] {
                         if let id = info["device_address"] as? String,
                            let type = info["device_minorType"] as? String{
@@ -107,7 +107,7 @@ class MagicBattery {
            let SPBluetoothDataType = SPBluetoothDataTypeRaw[0] as? [String: Any]{
             if let device_connected = SPBluetoothDataType["device_connected"] as? [Any]{
                 for device in device_connected{
-                    let d = device as! [String: Any]
+                    guard let d = device as? [String: Any] else { continue }
                     if let n = d.keys.first, let info = d[n] as? [String: Any] {
                         if let id = info["device_productID"] as? String,
                            let type = info["device_minorType"] as? String{
@@ -128,18 +128,18 @@ class MagicBattery {
         var productName = ""
         let lastUpdate = Date().timeIntervalSince1970
         if let productProperty = IORegistryEntryCreateCFProperty(object, "DeviceAddress" as CFString, kCFAllocatorDefault, 0) {
-            mac = productProperty.takeRetainedValue() as! String
+            mac = productProperty.takeRetainedValue() as? String ?? ""
             mac = mac.replacingOccurrences(of:"-", with:":").uppercased()
         }
         if let percentProperty = IORegistryEntryCreateCFProperty(object, "BatteryStatusFlags" as CFString, kCFAllocatorDefault, 0) {
-            status = percentProperty.takeRetainedValue() as! Int
+            status = (percentProperty.takeRetainedValue() as? NSNumber)?.intValue ?? 0
             if status == 4 { status = 0 }
         }
         if let percentProperty = IORegistryEntryCreateCFProperty(object, "BatteryPercent" as CFString, kCFAllocatorDefault, 0) {
-            percent = percentProperty.takeRetainedValue() as! Int
+            percent = (percentProperty.takeRetainedValue() as? NSNumber)?.intValue ?? 0
         }
         if let productProperty = IORegistryEntryCreateCFProperty(object, "Product" as CFString, kCFAllocatorDefault, 0) {
-            productName = productProperty.takeRetainedValue() as! String
+            productName = productProperty.takeRetainedValue() as? String ?? ""
             if productName.contains("Trackpad") { type = "Trackpad" }
             if productName.contains("Keyboard") { type = "Keyboard" }
             if productName.contains("Mouse") { type = "MMouse" }
@@ -157,77 +157,42 @@ class MagicBattery {
         }
     }
 
-    func getMagicBattery() {
+    private func scanHIDServices(named serviceName: String) {
         var serialPortIterator = io_iterator_t()
-        var object : io_object_t
         let masterPort: mach_port_t
         if #available(macOS 12.0, *) {
-            masterPort = kIOMainPortDefault // New name in macOS 12 and higher
+            masterPort = kIOMainPortDefault
         } else {
-            masterPort = kIOMasterPortDefault // Old name in macOS 11 and lower
+            masterPort = kIOMasterPortDefault
         }
-        let matchingDict : CFDictionary = IOServiceMatching("AppleDeviceManagementHIDEventService")
+        let matchingDict: CFDictionary = IOServiceMatching(serviceName)
         let kernResult = IOServiceGetMatchingServices(masterPort, matchingDict, &serialPortIterator)
-        
-        if KERN_SUCCESS == kernResult {
-            repeat {
-                object = IOIteratorNext(serialPortIterator)
-                if object != 0 { readMagicBattery(object: object) }
-            } while object != 0
+
+        guard KERN_SUCCESS == kernResult else { return }
+        defer { IOObjectRelease(serialPortIterator) }
+
+        var object = IOIteratorNext(serialPortIterator)
+        while object != 0 {
+            readMagicBattery(object: object)
             IOObjectRelease(object)
+            object = IOIteratorNext(serialPortIterator)
         }
-        IOObjectRelease(serialPortIterator)
+    }
+
+    func getMagicBattery() {
+        scanHIDServices(named: "AppleDeviceManagementHIDEventService")
     }
     
     func getOldMagicKeyboard() {
-        var serialPortIterator = io_iterator_t()
-        var object : io_object_t
-        let masterPort: mach_port_t
-        if #available(macOS 12.0, *) { masterPort = kIOMainPortDefault } else { masterPort = kIOMasterPortDefault }
-        let matchingDict : CFDictionary = IOServiceMatching("AppleBluetoothHIDKeyboard")
-        let kernResult = IOServiceGetMatchingServices(masterPort, matchingDict, &serialPortIterator)
-        if KERN_SUCCESS == kernResult {
-            repeat {
-                object = IOIteratorNext(serialPortIterator)
-                if object != 0 { readMagicBattery(object: object) }
-            } while object != 0
-            IOObjectRelease(object)
-        }
-        IOObjectRelease(serialPortIterator)
+        scanHIDServices(named: "AppleBluetoothHIDKeyboard")
     }
     
     func getOldMagicTrackpad() {
-        var serialPortIterator = io_iterator_t()
-        var object : io_object_t
-        let masterPort: mach_port_t
-        if #available(macOS 12.0, *) { masterPort = kIOMainPortDefault } else { masterPort = kIOMasterPortDefault }
-        let matchingDict : CFDictionary = IOServiceMatching("BNBTrackpadDevice")
-        let kernResult = IOServiceGetMatchingServices(masterPort, matchingDict, &serialPortIterator)
-        if KERN_SUCCESS == kernResult {
-            repeat {
-                object = IOIteratorNext(serialPortIterator)
-                if object != 0 { readMagicBattery(object: object) }
-            } while object != 0
-            IOObjectRelease(object)
-        }
-        IOObjectRelease(serialPortIterator)
+        scanHIDServices(named: "BNBTrackpadDevice")
     }
     
     func getOldMagicMouse() {
-        var serialPortIterator = io_iterator_t()
-        var object : io_object_t
-        let masterPort: mach_port_t
-        if #available(macOS 12.0, *) { masterPort = kIOMainPortDefault } else { masterPort = kIOMasterPortDefault }
-        let matchingDict : CFDictionary = IOServiceMatching("BNBMouseDevice")
-        let kernResult = IOServiceGetMatchingServices(masterPort, matchingDict, &serialPortIterator)
-        if KERN_SUCCESS == kernResult {
-            repeat {
-                object = IOIteratorNext(serialPortIterator)
-                if object != 0 { readMagicBattery(object: object) }
-            } while object != 0
-            IOObjectRelease(object)
-        }
-        IOObjectRelease(serialPortIterator)
+        scanHIDServices(named: "BNBMouseDevice")
     }
     
     func getAirpods() {
@@ -238,7 +203,7 @@ class MagicBattery {
         let SPBluetoothDataType = SPBluetoothDataTypeRaw[0] as? [String: Any]{
             if let device_connected = SPBluetoothDataType["device_connected"] as? [Any]{
                 for device in device_connected{
-                    let d = device as! [String: Any]
+                    guard let d = device as? [String: Any] else { continue }
                     if let n = d.keys.first, let info = d[n] as? [String: Any] {
                         var productID = "200e"
                         var mainDevice: Device?
@@ -289,15 +254,16 @@ class MagicBattery {
                         }
                         if let apCase = mainDevice { AirBatteryModel.updateDevice(apCase) }
                         if subDevices.count != 0 {
-                            if subDevices.count == 2 {
-                                if abs(Int(subDevices[0].batteryLevel) - Int(subDevices[1].batteryLevel)) < 3 {
-                                    AirBatteryModel.hideDevice(n + " 🄻")
-                                    AirBatteryModel.hideDevice(n + " 🅁")
-                                    AirBatteryModel.updateDevice(Device(deviceID: n + "_All", deviceType: "ap_pod_all", deviceName: n + " 🄻🅁", deviceModel: getHeadphoneModel(productID), batteryLevel: Int(min(subDevices[0].batteryLevel, subDevices[1].batteryLevel)), isCharging: 0, parentName: n + " (Case)".local, lastUpdate: now))
-                                }
+                            if subDevices.count == 2 && abs(subDevices[0].batteryLevel - subDevices[1].batteryLevel) < 3 {
+                                AirBatteryModel.hideDevice(n + " 🄻")
+                                AirBatteryModel.hideDevice(n + " 🅁")
+                                AirBatteryModel.updateDevice(Device(deviceID: n + "_All", deviceType: "ap_pod_all", deviceName: n + " 🄻🅁", deviceModel: getHeadphoneModel(productID), batteryLevel: min(subDevices[0].batteryLevel, subDevices[1].batteryLevel), isCharging: 0, parentName: n + " (Case)".local, lastUpdate: now))
                             } else {
                                 AirBatteryModel.hideDevice(n + " 🄻🅁")
-                                for pod in subDevices { AirBatteryModel.updateDevice(pod) }
+                                for var pod in subDevices {
+                                    pod.isHidden = false
+                                    AirBatteryModel.updateDevice(pod)
+                                }
                             }
                         }
                     }
@@ -313,13 +279,13 @@ class MagicBattery {
         let SPBluetoothDataType = SPBluetoothDataTypeRaw[0] as? [String: Any]{
             if let device_connected = SPBluetoothDataType["device_connected"] as? [Any]{
                 for device in device_connected{
-                    let d = device as! [String: Any]
+                    guard let d = device as? [String: Any] else { continue }
                     if let n = d.keys.first, let info = d[n] as? [String: Any] {
                         if let level = info["device_batteryLevelMain"] as? String,
                            let id = info["device_address"] as? String,
                            let type = info["device_minorType"] as? String,
                            (info["device_vendorID"] as? String) != "0x004C" {
-                            guard let batLevel = Int(level.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "%", with: "")) else { return }
+                            guard let batLevel = Int(level.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "%", with: "")) else { continue }
                             AirBatteryModel.updateDevice(Device(deviceID: id, deviceType: type, deviceName: n, batteryLevel: batLevel, isCharging: 0, lastUpdate: Date().timeIntervalSince1970))
                         }
                     }

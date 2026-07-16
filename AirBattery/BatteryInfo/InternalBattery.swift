@@ -112,7 +112,8 @@ class InternalFinder {
     }
 
     fileprivate func close() {
-        IOServiceClose(self.serviceInternal)
+        guard self.serviceInternal != 0 else { return }
+
         IOObjectRelease(self.serviceInternal)
 
         self.serviceInternal = 0
@@ -140,7 +141,7 @@ class InternalFinder {
 
         for ps in sources {
             // Fetch the information for a given power source out of our snapshot
-            let info = IOPSGetPowerSourceDescription(snapshot, ps).takeUnretainedValue() as! Dictionary<String, Any>
+            guard let info = IOPSGetPowerSourceDescription(snapshot, ps).takeUnretainedValue() as? [String: Any] else { continue }
 
             // Pull out the name and capacity
             battery.name = info[kIOPSNameKey] as? String
@@ -187,7 +188,7 @@ class InternalFinder {
 
     fileprivate func getIntValue(_ identifier: CFString) -> Int? {
         if let value = IORegistryEntryCreateCFProperty(self.serviceInternal, identifier, kCFAllocatorDefault, 0) {
-            return value.takeRetainedValue() as? Int
+            return (value.takeRetainedValue() as? NSNumber)?.intValue
         }
 
         return nil
@@ -203,7 +204,7 @@ class InternalFinder {
 
     fileprivate func getBoolValue(_ forIdentifier: CFString) -> Bool? {
         if let value = IORegistryEntryCreateCFProperty(self.serviceInternal, forIdentifier, kCFAllocatorDefault, 0) {
-            return value.takeRetainedValue() as? Bool
+            return (value.takeRetainedValue() as? NSNumber)?.boolValue
         }
 
         return nil
@@ -211,7 +212,7 @@ class InternalFinder {
 
     fileprivate func getTemperature() -> Double? {
         if let value = IORegistryEntryCreateCFProperty(self.serviceInternal, "Temperature" as CFString, kCFAllocatorDefault, 0) {
-            return value.takeRetainedValue() as! Double / 100.0
+            return (value.takeRetainedValue() as? NSNumber).map { $0.doubleValue / 100.0 }
         }
 
         return nil
@@ -219,7 +220,7 @@ class InternalFinder {
 
     fileprivate func getDoubleValue(_ identifier: CFString) -> Double? {
         if let value = IORegistryEntryCreateCFProperty(self.serviceInternal, identifier, kCFAllocatorDefault, 0) {
-            return value.takeRetainedValue() as? Double
+            return (value.takeRetainedValue() as? NSNumber)?.doubleValue
         }
 
         return nil
@@ -235,7 +236,7 @@ class InternalFinder {
 
     fileprivate func getManufactureDate() -> Date? {
         if let value = IORegistryEntryCreateCFProperty(self.serviceInternal, "ManufactureDate" as CFString, kCFAllocatorDefault, 0) {
-            let date = value.takeRetainedValue() as! Int
+            guard let date = (value.takeRetainedValue() as? NSNumber)?.intValue else { return nil }
 
             let day = date & 31
             let month = (date >> 5) & 15
@@ -253,4 +254,3 @@ class InternalFinder {
         return nil
     }
 }
-

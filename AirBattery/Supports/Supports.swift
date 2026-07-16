@@ -211,9 +211,9 @@ struct RoundedCornersShape: Shape {
 
 public func process(path: String, arguments: [String], timeout: Int = 0) -> String? {
     let task = Process()
-    task.launchPath = path
+    task.executableURL = URL(fileURLWithPath: path)
     task.arguments = arguments
-    task.standardError = Pipe()
+    task.standardError = FileHandle.nullDevice
 
     let outputPipe = Pipe()
     defer { outputPipe.fileHandleForReading.closeFile() }
@@ -371,7 +371,7 @@ func getMonoNum(_ num: Int, count: Int = 3, bold: Bool = false) -> String {
     let chars = bold ? ["𝟬","𝟭","𝟮","𝟯","𝟰","𝟱","𝟲","𝟳","𝟴","𝟵"] : ["𝟢","𝟣","𝟤","𝟥","𝟦","𝟧","𝟨","𝟩","𝟪","𝟫"]
     var output: [String] = []
     for i in String(num) { if let n = Int(String(i)) { output.append(chars[n]) } }
-    return String(repeating: "  ", count: (count - output.count)) + output.joined()
+    return String(repeating: "  ", count: max(0, count - output.count)) + output.joined()
 }
 
 func ib2ab(_ ib: iBattery) -> Device {
@@ -464,10 +464,10 @@ func getFirstNCharacters(of string: String, count: Int) -> String? {
 }
 
 func generateSymmetricKey(password: String) -> SymmetricKey {
-    let pass = substring(from: password, start: 15, length: 8)
+    let pass = substring(from: password, start: 15, length: 8) ?? password
     let salt = String(password.prefix(15))
-    let passwordData = Data(pass!.utf8)
-    let saltData = salt.data(using: .utf8)!
+    let passwordData = Data(pass.utf8)
+    let saltData = Data(salt.utf8)
     let derivedKey = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: passwordData), salt: saltData, info: Data(), outputByteCount: 32)
     return derivedKey
 }

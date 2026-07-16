@@ -11,7 +11,8 @@ import ArgumentParser
 let fd = FileManager.default
 let ud = UserDefaults.standard
 let key = "com.lihaoyun6.AirBattery.widget"
-let ncFolder = fd.urls(for: .libraryDirectory, in: .userDomainMask).first!.appendingPathComponent("Containers/\(AirBatteryModel.key)/Data/Documents/NearcastData")
+let libraryURL = fd.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fd.homeDirectoryForCurrentUser
+let ncFolder = libraryURL.appendingPathComponent("Containers/\(AirBatteryModel.key)/Data/Documents/NearcastData")
 
 extension Device {
     func toItem() -> item {
@@ -24,7 +25,7 @@ extension Device {
             status = "-"
         }
         let stamp = realUpdate != 0.0 ? realUpdate : lastUpdate
-        let min = Int((stamp - Double(Date().timeIntervalSince1970)) / 60)
+        let min = max(0, Int((Date().timeIntervalSince1970 - stamp) / 60))
         return item(
             device: deviceName,
             level: batteryLevel,
@@ -104,7 +105,7 @@ struct airbattery: ParsableCommand {
         rows.insert("-------\t------\t-------",at:1)
         joined = rows.joined(separator: "\n") + "\n"
         let process = Process()
-        process.launchPath = "/usr/bin/env"
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["column", "-t", "-s", "\t"]
 
         let inputPipe = Pipe()
@@ -112,8 +113,9 @@ struct airbattery: ParsableCommand {
         process.standardInput = inputPipe
         process.standardOutput = outputPipe
 
-        process.launch()
-        inputPipe.fileHandleForWriting.write(joined.data(using: .utf8)!)
+        try process.run()
+        guard let input = joined.data(using: .utf8) else { return }
+        inputPipe.fileHandleForWriting.write(input)
         inputPipe.fileHandleForWriting.closeFile()
 
         let result = outputPipe.fileHandleForReading.readDataToEndOfFile()

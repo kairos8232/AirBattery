@@ -9,6 +9,15 @@ import SwiftUI
 import Foundation
 import IOBluetooth
 
+private struct BluetoothLogDevice: Decodable {
+    let time: String
+    let type: String
+    let mac: String
+    let name: String
+    let level: Int
+    let status: String
+}
+
 class BTDBattery {
     var scanTimer: Timer?
     static var allDevices = [String]()
@@ -49,38 +58,35 @@ class BTDBattery {
     
     static func getOtherDevice(last: String = "10m", timeout: Int = 0) {
         let parent = ud.string(forKey: "deviceName") ?? "Mac"
-        guard let result = process(path: "/bin/bash", arguments: ["\(Bundle.main.resourcePath!)/logReader.sh", "mac", last], timeout: timeout) else { return }
+        guard let resourcePath = Bundle.main.resourcePath,
+              let result = process(path: "/bin/bash", arguments: ["\(resourcePath)/logReader.sh", "mac", last], timeout: timeout) else { return }
+
         let connected = getConnected(mac: true)
-        var list = [[String : Any]]()
-        let devices = result.components(separatedBy: "\n")
-        for device in devices {
-            if let json = try? JSONSerialization.jsonObject(with: Data(device.utf8), options: []) as? [String: Any] {
-                if let index = list.firstIndex(where: { dict in
-                    let name = dict["name"] as! String
-                    let mac = dict["mac"] as! String
-                    let type = dict["type"] as! String
-                    let nameNow = json["name"] as! String
-                    let macNow = json["mac"] as! String
-                    let typeNow = json["type"] as! String
-                    return (name == nameNow && mac == macNow && type == typeNow)
-                }) {
-                    list[index] = json
-                } else {
-                    list.append(json)
-                }
+        var latestDevices = [String: BluetoothLogDevice]()
+        var deviceOrder = [String]()
+
+        for line in result.split(separator: "\n") {
+            guard let device = try? JSONDecoder().decode(BluetoothLogDevice.self, from: Data(line.utf8)) else { continue }
+
+            let identifier = "\(device.name)\u{0}\(device.mac)\u{0}\(device.type)"
+            if latestDevices[identifier] == nil {
+                deviceOrder.append(identifier)
             }
+            latestDevices[identifier] = device
         }
-        for d in list {
-            let mac = d["mac"] as! String
-            var name = d["name"] as! String
-            let type = d["type"] as! String
-            let time = d["time"] as! String
-            let level = d["level"] as! Int
-            let status = (d["status"] as! String) == "+" ? 1 : 0
+
+        for identifier in deviceOrder {
+            guard let device = latestDevices[identifier] else { continue }
+
+            let mac = device.mac
+            var name = device.name
+            let type = device.type
+            let level = device.level
+            let status = device.status == "+" ? 1 : 0
             if name == "" { name = "\(type) (\(mac))" }
             if connected.contains(mac) {
                 if let index = allDevices.firstIndex(of: name) { allDevices[index] = name } else { allDevices.append(name) }
-                AirBatteryModel.updateDevice(Device(deviceID: mac, deviceType: type, deviceName: name, batteryLevel: min(100, max(0, level)), isCharging: status, parentName: parent, lastUpdate: Date().timeIntervalSince1970, realUpdate: isoFormatter.date(from: time)?.timeIntervalSince1970 ?? 0.0))
+                AirBatteryModel.updateDevice(Device(deviceID: mac, deviceType: type, deviceName: name, batteryLevel: min(100, max(0, level)), isCharging: status, parentName: parent, lastUpdate: Date().timeIntervalSince1970, realUpdate: isoFormatter.date(from: device.time)?.timeIntervalSince1970 ?? 0.0))
             }/* else {
                 if let index = allDevices.firstIndex(of: name) { allDevices.remove(at: index) }
                 AirBatteryModel.updateDevice(Device(deviceID: mac, deviceType: type, deviceName: name, batteryLevel: min(100, max(0, level)), isCharging: status, parentName: parent, lastUpdate: Date(timeIntervalSince1970: 0).timeIntervalSince1970))

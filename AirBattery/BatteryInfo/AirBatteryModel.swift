@@ -54,26 +54,26 @@ struct Device: Hashable, Codable {
 }
 
 class AirBatteryModel {
-    static var lock = false
+    private static let deviceLock = NSLock()
     static var Devices: [Device] = []
     static let machineType = ud.string(forKey: "machineType") ?? "Mac"
     static let key = "com.lihaoyun6.AirBattery.widget"
     
     static func updateDevice(_ device: Device) {
-        //let blockedItems = (ud.object(forKey: "blockedDevices") as? [String]) ?? [String]()
-        //if blockedItems.contains(device.deviceName) { return }
-        if lock { return }
-        lock = true
-        //self.Devices.removeAll(where: {blockedItems.contains($0.deviceName)})
+        deviceLock.lock()
+        defer { deviceLock.unlock() }
+
         if let index = self.Devices.firstIndex(where: { $0.deviceName == device.deviceName }) {
             self.Devices[index] = device
         } else {
             self.Devices.append(device)
         }
-        lock = false
     }
     
     static func hideDevice(_ name: String) {
+        deviceLock.lock()
+        defer { deviceLock.unlock() }
+
         for index in Devices.indices {
             if Devices[index].deviceName == name {
                 Devices[index].isHidden = true
@@ -82,6 +82,9 @@ class AirBatteryModel {
     }
     
     static func unhideDevice(_ name: String) {
+        deviceLock.lock()
+        defer { deviceLock.unlock() }
+
         for index in Devices.indices {
             if Devices[index].deviceName == name {
                 Devices[index].isHidden = false
@@ -90,17 +93,20 @@ class AirBatteryModel {
     }
     
     static func getBlackList() -> [Device] {
-        let blackList = (ud.object(forKey: "blackList") ?? []) as! [String]
+        let blackList = ud.object(forKey: "blackList") as? [String] ?? []
         let devices = getAll(noFilter: true)
         return devices.filter({ blackList.contains($0.deviceName) })
     }
     
     static func getAll(reverse: Bool = false, noFilter: Bool = false) -> [Device] {
         let thisMac = ud.string(forKey: "deviceName")
-        let disappearTime = (ud.object(forKey: "disappearTime") ?? 20) as! Int
-        let blackList = (ud.object(forKey: "blackList") ?? []) as! [String]
+        let disappearTime = ud.object(forKey: "disappearTime") as? Int ?? 20
+        let blackList = ud.object(forKey: "blackList") as? [String] ?? []
         let now = Double(Date().timeIntervalSince1970)
-        var list = (reverse ? Array(Devices.reversed()) : Devices).filter { (now - $0.lastUpdate < Double(disappearTime * 60)) }
+        deviceLock.lock()
+        let devices = Devices
+        deviceLock.unlock()
+        var list = (reverse ? Array(devices.reversed()) : devices).filter { now - $0.lastUpdate < Double(disappearTime * 60) }
         if !noFilter { list = list.filter { !blackList.contains($0.deviceName) && !$0.isHidden } }
         var newList: [Device] = list.filter({ $0.parentName == thisMac })
         for d in list {
@@ -129,11 +135,14 @@ class AirBatteryModel {
         var url: URL
         let bundleIdentifier = Bundle.main.bundleIdentifier
         if bundleIdentifier == key {
-            url = fd.urls(for: .documentDirectory, in: .userDomainMask).first!.appendingPathComponent("singleDeviceName")
+            let documentsURL = fd.urls(for: .documentDirectory, in: .userDomainMask).first ?? fd.homeDirectoryForCurrentUser
+            url = documentsURL.appendingPathComponent("singleDeviceName")
             let devicename = try? String(contentsOf: url, encoding: .utf8)
             return devicename ?? ""
         } else {
-            url = fd.urls(for: .libraryDirectory, in: .userDomainMask).first!.appendingPathComponent("Containers/\(key)/Data/Documents/singleDeviceName")
+            let libraryURL = fd.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fd.homeDirectoryForCurrentUser
+            url = libraryURL.appendingPathComponent("Containers/\(key)/Data/Documents/singleDeviceName")
+            try? fd.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? ud.string(forKey: "deviceOnWidget")?.write(to: url, atomically: true, encoding: .utf8)
         }
         return ""
@@ -143,9 +152,11 @@ class AirBatteryModel {
         var url: URL
         let bundleIdentifier = Bundle.main.bundleIdentifier
         if bundleIdentifier == key {
-            url = fd.urls(for: .documentDirectory, in: .userDomainMask).first!.appendingPathComponent("data.json")
+            let documentsURL = fd.urls(for: .documentDirectory, in: .userDomainMask).first ?? fd.homeDirectoryForCurrentUser
+            url = documentsURL.appendingPathComponent("data.json")
         } else {
-            url = fd.urls(for: .libraryDirectory, in: .userDomainMask).first!.appendingPathComponent("Containers/\(key)/Data/Documents/data.json")
+            let libraryURL = fd.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fd.homeDirectoryForCurrentUser
+            url = libraryURL.appendingPathComponent("Containers/\(key)/Data/Documents/data.json")
         }
         return url
     }
@@ -159,6 +170,7 @@ class AirBatteryModel {
         if ibStatus.hasBattery { devices.insert(ib2ab(ibStatus), at: 0) }
         do {
             let jsonData = try JSONEncoder().encode(devices)
+            try fd.createDirectory(at: getJsonURL().deletingLastPathComponent(), withIntermediateDirectories: true)
             try jsonData.write(to: getJsonURL())
         } catch {
             print("Write JSON error：\(error)")
@@ -166,6 +178,8 @@ class AirBatteryModel {
     }
     
     static func readData(url: URL = getJsonURL()) -> [Device]{
+        guard fd.fileExists(atPath: url.path) else { return [] }
+
         do {
             let jsonData = try Data(contentsOf: url)
             let list = try JSONDecoder().decode([Device].self, from: jsonData)
@@ -177,7 +191,7 @@ class AirBatteryModel {
     }
     
     static func ncGetAll(url: URL, fromWidget: Bool = false) -> [Device] {
-        let disappearTime = (ud.object(forKey: "disappearTime") ?? 20) as! Int
+        let disappearTime = ud.object(forKey: "disappearTime") as? Int ?? 20
         let devices = readData(url: url)
         let now = Double(Date().timeIntervalSince1970)
         var localDevices = getAll().map({ $0.deviceName })

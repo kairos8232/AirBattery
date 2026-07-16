@@ -9,6 +9,7 @@ import SwiftUI
 import WidgetKit
 import UserNotifications
 import IOBluetooth
+import ServiceManagement
 import Sparkle
 
 let fd = FileManager.default
@@ -17,7 +18,8 @@ var updaterController: SPUStandardUpdaterController!
 var statusBarItem: NSStatusItem!
 var pinnedItems = [NSStatusItem]()
 var netcastService: MultipeerService = MultipeerService(serviceType: "airbattery-nc")
-let ncFolder = fd.urls(for: .libraryDirectory, in: .userDomainMask).first!.appendingPathComponent("Containers/\(AirBatteryModel.key)/Data/Documents/NearcastData")
+let libraryDirectory = fd.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fd.homeDirectoryForCurrentUser
+let ncFolder = libraryDirectory.appendingPathComponent("Containers/\(AirBatteryModel.key)/Data/Documents/NearcastData")
 let systemUUID = getMacDeviceUUID()
 var dockWindow = AutoHideWindow()
 var menuPopover = NSPopover()
@@ -121,7 +123,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
                     ncDeviceCount += count
                 }
             }
-            let menuHeight = CGFloat((max(max(allDevices.count,1)+ncDeviceCount,1)+hiddenRow)*37+30+ncCount)
+            let displayedDeviceCount = max(allDevices.count + ncDeviceCount, 1)
+            let rowCount = displayedDeviceCount + hiddenRow
+            let menuHeight = CGFloat(rowCount * 37 + 30 + ncCount)
             let mouse = NSEvent.mouseLocation
             var menuX = mouse.x
             var menuY = mouse.y
@@ -281,7 +285,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
 
         if showOn == "dock" || showOn == "both" {
             let tipID = "ab.docktile-power.note"
-            let never = ud.object(forKey: "neverRemindMe") as! [String]
+            let never = ud.object(forKey: "neverRemindMe") as? [String] ?? []
             if !never.contains(tipID) {
                 let alert = createAlert(title: "AirBattery Tips".local, message: "Displaying AirBattery on the Dock will consume more power, it is better to use Menu Bar mode or Widgets.".local, button1: "Don't remind me again", button2: "OK")
                 if alert.runModal() == .alertFirstButtonReturn { ud.setValue(never + [tipID], forKey: "neverRemindMe") }
@@ -290,7 +294,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         
         if readBTHID {
             let tipID = "ab.third-party-device.note"
-            let never = ud.object(forKey: "neverRemindMe") as! [String]
+            let never = ud.object(forKey: "neverRemindMe") as? [String] ?? []
             if !never.contains(tipID) {
                 let alert = createAlert(title: "AirBattery Tips".local, message: "If some of your devices shows battery level in the Bluetooth menu, but AirBattery doesn't find it. Try disconnecting and reconnecting it, and wait a few minutes.".local, button1: "Don't remind me again", button2: "OK")
                 if alert.runModal() == .alertFirstButtonReturn { ud.setValue(never + [tipID], forKey: "neverRemindMe") }
@@ -483,7 +487,7 @@ public extension UserDefaults {
 }
 
 func refeshPinnedBar(unpin: String? = nil) {
-    var pinnedList = (ud.object(forKey: "pinnedList") ?? []) as! [String]
+    var pinnedList = ud.object(forKey: "pinnedList") as? [String] ?? []
     if pinnedList.isEmpty { return }
     if let unpin = unpin { pinnedList.removeAll(where: { $0 == unpin }) }
     var allDevices = AirBatteryModel.getAll()
@@ -498,9 +502,10 @@ func refeshPinnedBar(unpin: String? = nil) {
             let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             if let button = statusItem.button {
                 let icon = getDeviceIcon(device)
-                let image = NSImage(named: icon)!.resized(to: NSSize(width: 17, height: 17))
-                image.isTemplate = true
-                button.image = image
+                if let image = NSImage(named: icon)?.resized(to: NSSize(width: 17, height: 17)) {
+                    image.isTemplate = true
+                    button.image = image
+                }
                 button.title = "\(device.batteryLevel)\(device.isCharging != 0  ? "⚡︎" : "%")"
                 button.toolTip = device.deviceName
             }
